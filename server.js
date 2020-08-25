@@ -1,11 +1,13 @@
 'use strict';
 
+require('dotenv').config();
 const express     = require('express');
 const bodyParser  = require('body-parser');
 const fccTesting  = require('./freeCodeCamp/fcctesting.js');
 const session     = require('express-session');
 const mongo       = require('mongodb').MongoClient;
 const passport    = require('passport');
+const GithubStrategy = require('passport-github').Strategy;
 
 const app = express();
 
@@ -30,7 +32,30 @@ mongo.connect(process.env.DATABASE, (err, db) => {
         }));
         app.use(passport.initialize());
         app.use(passport.session());
-      
+
+	passport.use(new GithubStrategy({
+          clientID: process.env.GITHUB_CLIENT_ID,
+	  clientSecret: process.env.GITHUB_CLIENT_SECRET,
+	  callbackURL: "http://localhost:3000/auth/github/callback"
+        },function(accessToken, refreshToken, profile, cb){
+           db.collection("socialusers").findOne({
+             githubId:profile.id
+           }, function(err, user){
+             if(err) throw err;
+             console.log(user);
+             if(user){
+               cb(err, user); 
+             }else{
+	       db.collection("socialusers")
+		 .insertOne({ githubId: profile.id},
+                   function(err, doc){
+                    cb(err, doc);
+                   }
+	         ); 
+	     }
+           }); 
+        }));      
+
         function ensureAuthenticated(req, res, next) {
           if (req.isAuthenticated()) {
               return next();
@@ -39,12 +64,14 @@ mongo.connect(process.env.DATABASE, (err, db) => {
         };
 
         passport.serializeUser((user, done) => {
-          done(null, user.id);
+          console.log('user', user);
+
+          done(null, user.githubId);
         });
 
         passport.deserializeUser((id, done) => {
             db.collection('socialusers').findOne(
-                {id: id},
+                {githubId: id},
                 (err, doc) => {
                     done(null, doc);
                 }
@@ -56,10 +83,17 @@ mongo.connect(process.env.DATABASE, (err, db) => {
         *  ADD YOUR CODE BELOW
         */
       
+	app.get("/auth/github/",
+	  passport.authenticate("github"));      
       
-      
-      
-      
+	app.get("/auth/github/callback",
+	  passport.authenticate("github",
+ 	    {
+              failureRedirect:"/"
+            }),      
+          function(req,res){
+            res.redirect('/profile');
+          });   
       
       
         /*
